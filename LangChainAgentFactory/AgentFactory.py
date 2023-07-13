@@ -187,16 +187,3 @@ class ExampleFactory(ABC):
     @abstractmethod
     def examples(self) -> list[dict[str, str]]:
         """interaction examples between user and LLM"""
-
-def main():
-    summarizer = ConversationSummarizer()
-    # an unrefined model, ready to chat about general topics
-    chatbot = ModelFactory().chatbot()
-
-    prompt = input('How can I help you today?')
-    # count tokens, summarize the conversation up until now, and respond to a user's query:
-    summarizer.summarize(prompt)
-
-# main
-if __name__ == "__main__":
-    main()
