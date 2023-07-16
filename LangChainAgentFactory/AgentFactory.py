@@ -1,107 +1,60 @@
 from abc import ABC, abstractmethod, abstractproperty, abstractstaticmethod
 
-from langchain import PromptTemplate, FewShotPromptTemplate, LLMChain
-from langchain.prompts.example_selector import LengthBasedExampleSelector
+# models
 from langchain.chat_models import ChatOpenAI
-from langchain.chains import ConversationChain
-from langchain.chains.conversation.memory import ConversationSummaryBufferMemory
-from langchain.callbacks import get_openai_callback
+from langchain.memory import ConversationSummaryBufferMemory
+
+# agents
+from langchain.agents import initialize_agent, Tool
+from langchain.agents import AgentType
+
+# fine-tune models
+from langchain import PromptTemplate, FewShotPromptTemplate
+from langchain.prompts.example_selector import LengthBasedExampleSelector
+
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 parameters_list = ["query", "answer"]
+class AgentFactory:
+    def __init__(self, tools: list[Tool] = [], openai_model_name='gpt-4', temperature=0.0, memory = None, max_tokens=2000):
+        """generates agents for the user to interact with the LLM.
 
-class TokenHandler:
-    """Handles token reporting"""
+        Args:
+            tools (list[Tool], optional): Tools/StructuredTools the agent will have access to. Tools cannot be passed in to an agent after calling `agent` 
+            to create an agent with different tooling, change the properties and call `agent` again. Defaults to [].
 
-    def __init__(self, llm_chain: LLMChain):
-        self.llm_chain = llm_chain
+            openai_model_name (str, optional): the openai chat model to use. Defaults to 'gpt-4'.
 
-    def handle(self, message: str):
-        try:
-            with get_openai_callback() as cb:
-                result = self.llm_chain.run(message)
-                print("memory: ", self.llm_chain.memory)
-                print("chat result: ", result)
-                print(f"Spent a total of {cb.total_tokens} tokens")
-                return result
-        except Exception as error:
-            raise error
+            temperature (float, optional): how "creative" or determinative the model is. Defaults to 0.0.
 
-class ConversationSummarizer:
-    def __init__(self, memory: ConversationSummaryBufferMemory = None):
-        summarization_model = ModelFactory().summarizer()
-        if memory is None:
-            memory = ConversationSummaryBufferMemory(
-                llm=summarization_model, max_token_limit=4000
-            )
-        self.conversation = ConversationChain(
-            llm=summarization_model,
-            memory=memory
-        )
+            memory (_type_, optional): type of memory the agent will have. Defaults to ConversationSummaryBufferMemory which holds a summary of
+            the conversation up to `max_tokens`.
 
-    def summarize(self, prompt):
-        counter = TokenHandler(self.conversation)
-        
-        return counter.handle(prompt)
-
-
-class ModelFactory:
-    """Creates models with preset parameters for various tasks"""
-
-    # region Expensive Models
-    _gpt_3_5_turbo = "gpt-3.5-turbo"
-    _gpt_3_5_turbo_16k = "gpt-3.5-turbo-16k"
-    _gpt_4 = "gpt-4"
-
-    # region private methods
-    def _creative_gpt3(self, temperature=0.8):
-        return ChatOpenAI(model_name=self._gpt_3_5_turbo, temperature=temperature)
-    
-    def _creative_gpt4(self, temperature=0.8):
-        return ChatOpenAI(model_name=self._gpt_4, temperature=temperature)
-    
-    def _creative_gpt3_16k(self, temperature=0.8):
-        return ChatOpenAI(model_name=self._gpt_3_5_turbo_16k, temperature=temperature)
-
-    def _strict_gpt3(self, temperature=0.2):
-        return ChatOpenAI(model_name=self._gpt_3_5_turbo, temperature=temperature)
-
-    # endregion
-
-    def summarizer(self):
-        """Returns a creative model for high-value summarization. May be more expensive than `cheap_summarizer()`, should be more accurate."""
-        return self._creative_gpt4()
-    
-    def chatbot(self):
-        return self._creative_gpt4()
-
-    def instructor(self):
-        """Returns a strict model for providing user-instructions. Not recommended for chat as it will repeat itself fairly often.
+            max_tokens (int, optional): The maximum number of tokens before the ConversationBufferMemory resets. Defaults to 2000.
         """
-        return self._strict_gpt3()
+        llm = ChatOpenAI(temperature=temperature, model=openai_model_name)
+        self.memory = memory if memory is not None else ConversationSummaryBufferMemory(llm=llm, memory_key="chat_history", max_token_limit=max_tokens)        
+        self.llm = llm        
+        self.tools = tools
 
-    # endregion
+    def agent(self, agent_type = AgentType.OPENAI_MULTI_FUNCTIONS, verbose=True):
+        """generate an agent given self.tools, self.llm, self.memory, and agent_type
 
-    # region Cheap Models
-    _davinci_003 = "davinci-003"
+        Args:
+            agent_type (_type_, optional): The type of agent that will be generated. 
+            Defaults to AgentType.OPENAI_MULTI_FUNCTIONS to allow for multi-parameter functions.
 
-    def _creative_davinci(self):
-        return ChatOpenAI(model_name=self._davinci_003, temperature=0.8)
+            verbose (bool, optional): Will console output be verbose? Defaults to True.
 
-    def _strict_davinci(self):
-        return ChatOpenAI(model_name=self._davinci_003, temperature=0.2)
+        Returns:
+            Agent: A chatbot with access to functions/tools and a memory.
+        """
+        return initialize_agent(self.tools, self.llm, agent_type, memory=self.memory, verbose=verbose)
 
-    def cheap_summarizer(self):
-        """Returns a low-cost creative model for summarization. May be less accurate and provide less value to the llm than `summarizer()`"""
-        return self._creative_davinci()
-
-    def cheap_instructor(self):
-        """Returns a low-cost strict model for instruction. May be less accurate and provide less value to the user than `instructor()`"""
-        return self._strict_davinci()
-
-    # endregion
-
-
-class PromptLengthLimiter(ABC):
+# region Unimplemented
+class PromptLengthLimiter:
     def __init__(self, max_words: int, examples: list, example_prompt: PromptTemplate):
         self.max_words = max_words
         self.examples = examples
@@ -111,8 +64,6 @@ class PromptLengthLimiter(ABC):
         return LengthBasedExampleSelector(
             self.examples, self.example_prompt, self.max_words
         )
-
-
 class FewShotPromptHandler(ABC):
     def __init__(
         self,
@@ -187,3 +138,4 @@ class ExampleFactory(ABC):
     @abstractmethod
     def examples(self) -> list[dict[str, str]]:
         """interaction examples between user and LLM"""
+# endregion
