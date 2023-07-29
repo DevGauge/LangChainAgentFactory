@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod, abstractproperty, abstractstaticmethod
+from abc import ABC, abstractmethod, abstractproperty
 
 # models
 from langchain.chat_models import ChatOpenAI
@@ -10,13 +10,15 @@ from langchain.agents import AgentType
 
 # fine-tune models
 from langchain import PromptTemplate, FewShotPromptTemplate
+from langchain.prompts import MessagesPlaceholder
 from langchain.prompts.example_selector import LengthBasedExampleSelector
+
+from .Database_Prep import conversation_chain_using_prepared_chroma_vectorstore
 
 from dotenv import load_dotenv
 import os
 load_dotenv()
 
-parameters_list = ["query", "answer"]
 class AgentFactory:
     def __init__(self, tools: list[Tool] = [], openai_model_name='gpt-4', temperature=0.0, memory = None, max_tokens=2000):
         """generates agents for the user to interact with the LLM.
@@ -35,11 +37,16 @@ class AgentFactory:
             max_tokens (int, optional): The maximum number of tokens before the ConversationBufferMemory resets. Defaults to 2000.
         """
         llm = ChatOpenAI(temperature=temperature, model=openai_model_name)
-        self.memory = memory if memory is not None else ConversationSummaryBufferMemory(llm=llm, memory_key="chat_history", max_token_limit=max_tokens)        
-        self.llm = llm        
+        self.memory = memory if memory is not None else ConversationSummaryBufferMemory(
+            llm=llm,
+            memory_key="chat_history",
+            return_intermediate_steps = True,
+            return_messages=True,
+            max_token_limit=max_tokens)
+        self.llm = llm
         self.tools = tools
 
-    def agent(self, agent_type = AgentType.OPENAI_MULTI_FUNCTIONS, verbose=True):
+    def agent(self, agent_type = AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION, verbose=True):
         """generate an agent given self.tools, self.llm, self.memory, and agent_type
 
         Args:
@@ -51,7 +58,18 @@ class AgentFactory:
         Returns:
             Agent: A chatbot with access to functions/tools and a memory.
         """
-        return initialize_agent(self.tools, self.llm, agent_type, memory=self.memory, verbose=verbose)
+        chat_history = MessagesPlaceholder(variable_name="chat_history")
+        agent_chain = initialize_agent(self.tools,
+                                       self.llm,
+                                       agent=agent_type,
+                                       verbose=verbose,
+                                       memory=self.memory,
+                                       intermediate_steps=True,
+                                       agent_kwargs = {
+                                           "memory_prompts": [chat_history],
+                                           "input_variables": ["input", "agent_scratchpad", "chat_history"]
+                                       })
+        return agent_chain
 
 # region Unimplemented
 class PromptLengthLimiter:
