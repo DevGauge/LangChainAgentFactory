@@ -1,2 +1,2 @@
-langchain==0.0.227
+langchain==0.0.308
 python-dotenv==1.0.0
